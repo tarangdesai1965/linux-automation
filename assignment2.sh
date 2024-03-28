@@ -21,28 +21,32 @@ is_package_installed() {
 add_user_accounts() {
     local users=("dennis" "aubrey" "captain" "snibbles" "brownie" "scooter" "sandy" "perrier" "cindy" "tiger" "yoda")
 
+    print_section_header "Adding user accounts"
+
     for user in "${users[@]}"; do
         if ! id "$user" &> /dev/null; then
             echo "Creating user: $user"
-            useradd -m -s /bin/bash "$user" || {
+            sudo useradd -m -s /bin/bash "$user" || {
                 print_error "Failed to create user: $user"
                 continue
             }
+        else
+            echo "User '$user' already exists."
         fi
 
         echo "Setting up SSH keys for user: $user"
-        mkdir -p "/home/$user/.ssh"
-        cat >> "/home/$user/.ssh/authorized_keys" <<-EOF
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG4rT3vTt99Ox5kndS4HmgTrKBT8SKzhK4rhGkEVGlCI student@generic-vm
-# Add RSA and ED25519 public keys for user $user here
-EOF
-        chown -R "$user:$user" "/home/$user/.ssh"
-        chmod 700 "/home/$user/.ssh"
-        chmod 600 "/home/$user/.ssh/authorized_keys"
+        sudo mkdir -p "/home/$user/.ssh"
+        sudo cp "/home/student/.ssh/id_rsa.pub" "/home/$user/.ssh/authorized_keys"
+        sudo cp "/home/student/.ssh/id_ed25519.pub" "/home/$user/.ssh/authorized_keys"
+        sudo chown -R "$user:$user" "/home/$user/.ssh"
+        sudo chmod 700 "/home/$user/.ssh"
+        sudo chmod 600 "/home/$user/.ssh/authorized_keys"
     done
 
     # Grant sudo access to dennis
-    usermod -aG sudo dennis
+    sudo usermod -aG sudo dennis
+
+    echo "User account setup completed."
 }
 
 # Function to configure network interface
@@ -59,14 +63,14 @@ configure_network_interface() {
             echo "Network interface $interface already configured."
         else
             echo "Adding configuration for $interface to $netplan_file"
-            cat >> "$netplan_file" <<-EOF
+            sudo bash -c "cat >> $netplan_file" <<-EOF
             network:
               version: 2
               ethernets:
                 $interface:
                   addresses: [$ip_address/$netmask]
 EOF
-            netplan apply || {
+            sudo netplan apply || {
                 print_error "Failed to apply netplan configuration."
                 return 1
             }
@@ -87,13 +91,13 @@ configure_hosts_file() {
     print_section_header "Configuring /etc/hosts file"
 
     if grep -q "$hostname" "$hosts_file"; then
-        sed -i "/$hostname/c\\$ip_address\t$hostname" "$hosts_file" || {
+        sudo sed -i "/$hostname/c\\$ip_address\t$hostname" "$hosts_file" || {
             print_error "Failed to update /etc/hosts file."
             return 1
         }
         echo "/etc/hosts file updated successfully."
     else
-        echo "$ip_address\t$hostname" >> "$hosts_file" || {
+        echo "$ip_address\t$hostname" | sudo tee -a "$hosts_file" > /dev/null || {
             print_error "Failed to update /etc/hosts file."
             return 1
         }
@@ -108,7 +112,7 @@ install_packages() {
     # Install apache2 if not installed
     if ! is_package_installed "apache2"; then
         echo "Installing apache2..."
-        apt update && apt install -y apache2 || {
+        sudo apt update && sudo apt install -y apache2 || {
             print_error "Failed to install apache2."
             return 1
         }
@@ -120,7 +124,7 @@ install_packages() {
     # Install squid if not installed
     if ! is_package_installed "squid"; then
         echo "Installing squid..."
-        apt update && apt install -y squid || {
+        sudo apt update && sudo apt install -y squid || {
             print_error "Failed to install squid."
             return 1
         }
@@ -136,39 +140,44 @@ configure_firewall() {
 
     # Reset ufw to default settings
     echo "Resetting ufw to default settings..."
-    ufw --force reset
+    sudo ufw --force reset
 
     # Set default policies
-    ufw default deny incoming
-    ufw default allow outgoing
+    sudo ufw default deny incoming
+    sudo ufw default allow outgoing
 
     # Allow SSH on management network (assuming mgmt network is ens192)
-    ufw allow in on ens192 to any port 22
+    sudo ufw allow in on ens192 to any port 22
 
     # Allow HTTP on both interfaces
-    ufw allow in on ens192 to any port 80
-    ufw allow in on ens192 to any port 80
+    sudo ufw allow in on ens192 to any port 80
+    sudo ufw allow in on ens192 to any port 80
 
     # Allow squid proxy on both interfaces
-    ufw allow in on ens192 to any port 3128
-    ufw allow in on ens192 to any port 3128
+    sudo ufw allow in on ens192 to any port 3128
+    sudo ufw allow in on ens192 to any port 3128
 
     # Enable ufw
     echo "Enabling ufw..."
-    ufw --force enable
+    sudo ufw --force enable
 
     echo "Firewall configured successfully."
 }
 
 # Main function
 main() {
-    add_user_accounts || return 1
-    configure_network_interface || return 1
-    configure_hosts_file || return 1
-    install_packages || return 1
-    configure_firewall || return 1
+    add_user_accounts && \
+    configure_network_interface && \
+    configure_hosts_file && \
+    install_packages && \
+    configure_firewall
 
-    echo "All configurations applied successfully."
+    if [ $? -eq 0 ]; then
+        echo "All configurations applied successfully."
+    else
+        print_error "One or more configurations failed. Please check the error messages."
+        return 1
+    fi
 }
 
 # Execute main function
