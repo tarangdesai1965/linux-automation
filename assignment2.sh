@@ -50,11 +50,12 @@ add_user_accounts() {
 }
 
 # Function to configure network interface
+
 configure_network_interface() {
     local interface="ens192"  # Modify interface name if needed
     local ip_address="192.168.16.21"
     local netmask="24"
-    local netplan_file="/etc/netplan/01-netcfg.yaml"
+    local netplan_file="/etc/netplan/01-network-manager-all.yaml"  # Corrected file path
 
     print_section_header "Configuring network interface"
 
@@ -63,14 +64,14 @@ configure_network_interface() {
             echo "Network interface $interface already configured."
         else
             echo "Adding configuration for $interface to $netplan_file"
-            sudo bash -c "cat >> $netplan_file" <<-EOF
+            cat >> "$netplan_file" <<-EOF
             network:
               version: 2
               ethernets:
                 $interface:
                   addresses: [$ip_address/$netmask]
 EOF
-            sudo netplan apply || {
+            netplan apply || {
                 print_error "Failed to apply netplan configuration."
                 return 1
             }
